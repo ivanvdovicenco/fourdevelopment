@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stroi-Core AI (v0.12) - Интерактивный Гант</title>
+    
+    <!-- 1. Подключение Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. Подключение Chart.js для лепестковых диаграмм (AHP) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- 3. Frappe Gantt (JS и CSS) -->
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt@0.6.1/dist/frappe-gantt.min.css">
+
+    <style>
+        /* Общие стили и анимации */
+        .page { display: none; animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .nav-link {
+            transition: all 0.2s ease-in-out;
+            border-bottom-color: transparent;
+        }
+        .nav-link.active { 
+            border-bottom-color: #3b82f6; /* blue-500 */
+            color: #3b82f6; 
+        }
+        
+        .slider-label { width: 120px; text-align: center; }
+        
+        /* Стили для модальных окон */
+        .modal-backdrop { 
+            display: none; 
+            position: fixed; 
+            z-index: 40; 
+            inset: 0; 
+            background-color: rgba(0, 0, 0, 0.5); 
+            animation: fadeIn 0.1s ease-out; 
+        }
+        .modal { 
+            display: none; 
+            position: fixed; 
+            z-index: 50; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            animation: fadeIn 0.1s ease-out; 
+            max-height: 90vh; 
+            overflow-y: auto; 
+        }
+        
+        /* Стили для лоадера */
+        .loader { 
+            border: 4px solid #f3f3f3; /* light grey */
+            border-top: 4px solid #3498db; /* blue */
+            border-radius: 50%; 
+            width: 20px; 
+            height: 20px; 
+            animation: spin 1s linear infinite; 
+            display: inline-block; 
+            vertical-align: middle; 
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Стили для таблицы отчета */
+        .report-table th, .report-table td { 
+            padding: 8px 12px; 
+            border: 1px solid #e5e7eb; /* gray-200 */
+            text-align: right; 
+        }
+        .report-table th { 
+            background-color: #f3f4f6; /* gray-100 */
+            font-weight: 600; 
+            text-align: center;
+        }
+        .report-table td:first-child, .report-table th:first-child { 
+            text-align: left;
+        }
+        .report-table .negative-variance { 
+            color: #dc2626; /* red-600 */ 
+            font-weight: 600; 
+        }
+        .report-table .positive-variance { 
+            color: #16a34a; /* green-600 */ 
+        }
+
+        /* Стили для Графика Ганта */
+        #gantt-chart-container .gantt .bar-progress {
+            fill: #3b82f6; /* blue-500 */
+        }
+        #gantt-chart-container .gantt .bar {
+            fill: #a5b4fc; /* indigo-300 */
+        }
+        #gantt-chart-container .gantt .bar-label {
+            font-size: 12px;
+            fill: #1f2937; /* gray-800 */
+        }
+        #gantt-chart-container .gantt .grid-header {
+            fill: #f9fafb; /* gray-50 */
+        }
+        .gantt .grid-row:nth-child(even) {
+            fill: #f9fafb; /* gray-50 */
+        }
+        
+        /* * НОВОЕ v0.12: Стили для Toast-уведомления
+         */
+        .toast-notification {
+            position: fixed;
+            bottom: -100px; /* Начинает за экраном */
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            z-index: 1000;
+            transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55); /* Эффект "выпрыгивания" */
+        }
+        .toast-notification.toast-show {
+            bottom: 20px; /* Появляется на экране */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans leading-normal tracking-normal">
+
+    <!-- 
+    ================================================================
+    ОСНОВНОЕ ПРИЛОЖЕНИЕ
+    ================================================================
+    -->
+    <div id="app-container">
+        <!-- Главный контейнер приложения -->
+        <div id="app" class="flex flex-col min-h-screen">
+
+            <!-- Навигационная панель -->
+            <nav class="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-30">
+                <div class="container mx-auto px-4">
+                    <div class="flex items-center justify-between h-16">
+                        <div class="flex items-center">
+                            <span class="text-2xl font-bold text-blue-600">Stroi-Core AI</span>
+                            <span id="auth-status" class="ml-4 text-xs text-gray-400">(Инициализация...)</span>
+                        </div>
+                        <div class="flex items-center space-x-1 flex-wrap">
+                            <!-- Ссылки навигации -->
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="projects">Проекты (WBS)</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="gantt">График</a> 
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="materials">Материалы</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="ahp">Выбор (AHP)</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="submittals">Согласование</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="change-orders">Изменения (CO)</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="procurement">Закупки (PO)</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="invoices">Акты (Invoices)</a>
+                            <a href="#" class="nav-link text-gray-600 font-medium px-3 py-2 border-b-2" data-page="reports">Отчеты</a>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Контент страниц -->
+            <main class="flex-grow container mx-auto p-4 md:p-6 lg:p-8">
+
+                <!-- Страница: Проекты (WBS) -->
+                <div id="page-projects" class="page">
+                    <div class="flex justify-between items-center mb-4">
+                        <h1 class="text-2xl font-semibold text-gray-800">Модуль 2: Финансовое Ядро (Проекты и Бюджет)</h1>
+                        <button id="seed-db-btn" class="px-5 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 shadow">
+                            Заполнить/Сбросить Тестовые Данные
+                        </button>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="text-gray-700 mb-4">Основа системы. Финансовая сводка по проектам: Бюджет, Обязательства (PO) и Фактические затраты (Акты).</p>
+                        <div id="projects-list" class="space-y-6">
+                            <!-- Список проектов и их WBS будет загружен из Firestore -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: График Ганта -->
+                <div id="page-gantt" class="page">
+                    <div class="flex justify-between items-center mb-4">
+                        <h1 class="text-2xl font-semibold text-gray-800">Модуль 3: Планирование (График Ганта)</h1>
+                        <div class="flex items-center space-x-4">
+                            <label for="gantt-project-select" class="text-sm font-medium text-gray-700">Проект:</label>
+                            <select id="gantt-project-select" class="block w-64 border border-gray-300 rounded-md shadow-sm p-2 bg-white">
+                                <option value="">-- Выберите Проект --</option> 
+                            </select>
+                             <button id="gantt-add-task-btn" class="px-5 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700" disabled>+ Добавить Задачу</button>
+                        </div>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="text-gray-700 mb-4">Интерактивный график проекта. Изменения дат и прогресса сохраняются автоматически.</p>
+                        
+                        <!-- Контейнер для Frappe Gantt -->
+                        <div id="gantt-chart-container" class="mt-4">
+                            <p id="gantt-placeholder" class="text-gray-500 text-center py-10">Выберите проект для отображения графика.</p>
+                            <svg id="gantt-svg"></svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: База материалов -->
+                <div id="page-materials" class="page">
+                    <h1 class="text-2xl font-semibold text-gray-800 mb-4">Модуль 5 (Часть 1): База материалов</h1>
+                    <div id="materials-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <!-- Список материалов будет загружен из Firestore -->
+                    </div>
+                </div>
+                
+                <!-- Страница: Выбор (AHP) -->
+                <div id="page-ahp" class="page">
+                    <h1 class="text-2xl font-semibold text-gray-800 mb-4">Модуль 5 (Часть 2): Мастер выбора материалов (AHP)</h1>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <!-- Шаг 1: Выбор материалов -->
+                        <div id="ahp-step-1">
+                            <h2 class="text-xl font-semibold text-gray-700 mb-3">Шаг 1: Выберите материалы для сравнения</h2>
+                            <div id="ahp-materials-selection" class="space-y-2 max-h-60 overflow-y-auto border p-4 rounded-md bg-gray-50">
+                                <!-- Опции выбора материалов -->
+                            </div>
+                            <button id="ahp-goto-step-2" class="mt-4 px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300" disabled>Далее</button>
+                        </div>
+                        <!-- Шаг 2: Взвешивание критериев -->
+                        <div id="ahp-step-2" style="display: none;">
+                            <h2 class="text-xl font-semibold text-gray-700 mb-3">Шаг 2: Определите и взвесьте критерии</h2>
+                            <div id="ahp-criteria-matrix" class="space-y-4">
+                                <!-- Матрица сравнения критериев -->
+                            </div>
+                            <div class="mt-6 flex space-x-4">
+                                <button id="ahp-back-step-1" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Назад</button>
+                                <button id="ahp-calculate" class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Рассчитать</button>
+                            </div>
+                        </div>
+                        <!-- Шаг 3: Результаты -->
+                        <div id="ahp-step-3" style="display: none;">
+                            <h2 class="text-xl font-semibold text-gray-700 mb-3">Шаг 3: Результаты анализа (AHP)</h2>
+                            <p id="ahp-consistency-report" class="text-sm mb-4 font-medium"></p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div class="bg-gray-50 p-4 rounded-md">
+                                    <h3 class="font-semibold mb-2 text-center">Профиль материалов</h3>
+                                    <canvas id="ahp-radar-chart"></canvas>
+                                </div>
+                                <div class="bg-gray-50 p-4 rounded-md">
+                                    <h3 class="font-semibold mb-2 text-center">Итоговый рейтинг</h3>
+                                    <ul id="ahp-results-list" class="space-y-3"></ul>
+                                </div>
+                            </div>
+                            <!-- Блок Gemini -->
+                            <div id="gemini-justification-section" class="mt-6 border-t pt-4">
+                                <button id="generate-justification-btn" class="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center space-x-2">
+                                    <span>✨ Обосновать (Gemini)</span>
+                                    <span id="justification-loader" class="loader" style="display: none;"></span>
+                                </button>
+                                <div id="justification-output" class="mt-4 p-4 bg-gray-100 border rounded-md text-gray-800" style="display: none;"></div>
+                                <div id="justification-error" class="mt-4 p-4 bg-red-100 border border-red-300 text-red-800 rounded-md" style="display: none;"></div>
+                            </div>
+                            <!-- Кнопки управления -->
+                            <div class="mt-6 flex space-x-4">
+                                <button id="ahp-back-step-2" class="px-6 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">К критериям</button>
+                                <button id="ahp-save-report" class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Сохранить отчет</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: Согласование (Submittals) -->
+                <div id="page-submittals" class="page">
+                    <div class="flex justify-between items-center mb-4">
+                        <h1 class="text-2xl font-semibold">Модуль 4: Согласование (Submittals)</h1>
+                        <button id="open-create-submittal-modal" class="px-5 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">+ Создать Submittal</button>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <div class="space-y-4" id="submittals-list">
+                            <!-- Список Submittals -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: Изменения (Change Orders) -->
+                <div id="page-change-orders" class="page">
+                    <div class="flex justify-between items-center mb-4">
+                        <h1 class="text-2xl font-semibold">Модуль 2 (Часть 3): Изменения (CO)</h1>
+                        <button id="open-create-co-modal" class="px-5 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">+ Создать Изменение</button>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="mb-4 text-gray-700">Управление изменениями бюджета (Change Orders). Здесь фиксируются все дополнения и экономия.</p>
+                        <div class="space-y-4" id="change-orders-list">
+                            <!-- Список Change Orders -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: Закупки (PO) -->
+                <div id="page-procurement" class="page">
+                    <h1 class="text-2xl font-semibold mb-4">Модуль 5 (Часть 3): Закупки (PO)</h1>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="mb-4 text-gray-700">Заказы на Поставку (PO) - Обязательства (Committed Costs) по проектам.</p>
+                        <div class="space-y-4" id="procurement-list">
+                            <!-- Список PO -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: Акты (Invoices) -->
+                <div id="page-invoices" class="page">
+                    <div class="flex justify-between items-center mb-4">
+                        <h1 class="text-2xl font-semibold">Модуль 2 (Часть 2): Акты / Счета</h1>
+                        <button id="open-create-invoice-modal" class="px-5 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">+ Создать Акт</button>
+                    </div>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <p class="mb-4 text-gray-700">Регистрация полученных счетов - Фактические Затраты (Actual Costs).</p>
+                        <div class="space-y-4" id="invoices-list">
+                            <!-- Список Invoices -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Страница: Отчеты -->
+                <div id="page-reports" class="page">
+                    <h1 class="text-2xl font-semibold text-gray-800 mb-4">Модуль 6: Отчетность</h1>
+                    <div class="bg-white p-6 rounded-lg shadow-md">
+                        <div class="mb-6 flex items-end space-x-4">
+                            <div>
+                                <label for="report-project-select" class="block text-sm font-medium text-gray-700 mb-1">Выберите Проект:</label>
+                                <select id="report-project-select" class="block w-64 border border-gray-300 rounded-md shadow-sm p-2 bg-white">
+                                    <option value="">-- Выберите Проект --</option> 
+                                </select>
+                            </div>
+                            <button id="generate-cost-report-btn" class="px-5 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 shadow">Сформировать Отчет</button>
+                            <button id="export-csv-btn" class="px-5 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 shadow hidden">Экспорт в CSV</button>
+                        </div>
+
+                        <div id="report-output" class="overflow-x-auto">
+                            <p class="text-gray-500">Выберите проект и нажмите "Сформировать Отчет".</p>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- 
+    ================================================================
+    НОВОЕ v0.12: Toast-уведомление
+    ================================================================
+    -->
+    <div id="toast-notification" class="toast-notification">
+        Сообщение...
+    </div>
+
+    <!--
+    ================================================================
+    МОДАЛЬНЫЕ ОКНА (без изменений)
+    ================================================================
+    -->
+
+    <!-- Модальное окно: Создать Submittal -->
+    <div id="create-submittal-modal-backdrop" class="modal-backdrop"></div>
+    <div id="create-submittal-modal" class="modal bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+        <h3 class="text-xl font-semibold mb-4">Создать Submittal</h3>
+        <form id="create-submittal-form"><div class="mb-4"><label for="submittal-title" class="block text-sm font-medium text-gray-700">Название</label><input type="text" id="submittal-title" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required></div><div class="mb-4"><label for="submittal-project" class="block text-sm font-medium text-gray-700">Проект</label><select id="submittal-project" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white" required></select></div><div class="mb-4"><label for="submittal-ahp-report" class="block text-sm font-medium text-gray-700">Прикрепить AHP Отчет (рекомендуется)</label><select id="submittal-ahp-report" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white"></select></div><div class="flex justify-end space-x-3 mt-6"><button type="button" id="cancel-create-submittal" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Отмена</button><button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Создать</button></div></form>
+    </div>
+
+    <!-- Модальное окно: Создать PO -->
+    <div id="create-po-modal-backdrop" class="modal-backdrop"></div>
+    <div id="create-po-modal" class="modal bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+        <h3 class="text-xl font-semibold mb-4">Создать Заказ на Поставку (PO)</h3>
+        <p class="text-sm mb-4">Submittal <strong id="po-submittal-name" class="text-blue-600"></strong> будет "Утвержден".</p>
+        <form id="create-po-form"><input type="hidden" id="po-submittal-id"><div class="mb-4"><label for="po-material-name" class="block text-sm font-medium text-gray-700">Материал</label><input type="text" id="po-material-name" class="mt-1 block w-full border border-gray-300 rounded-md p-2 bg-gray-100" readonly><input type="hidden" id="po-material-id"></div><div class="grid grid-cols-2 gap-4 mb-4"><div><label for="po-quantity" class="block text-sm font-medium text-gray-700">Количество</label><input type="number" id="po-quantity" value="1" min="1" step="any" class="mt-1 block w-full border border-gray-300 rounded-md p-2" required></div><div><label for="po-unit-price" class="block text-sm font-medium text-gray-700">Цена (MDL)</label><input type="number" id="po-unit-price" step="any" class="mt-1 block w-full border border-gray-300 rounded-md p-2 bg-gray-100" readonly></div></div><div class="mb-4"><label for="po-wbs-code" class="block text-sm font-medium text-gray-700">Списать из WBS</label><select id="po-wbs-code" class="mt-1 block w-full border border-gray-300 rounded-md p-2 bg-white" required></select></div><div class="bg-gray-50 p-3 rounded-md mt-4 border border-gray-200"><h4 class="text-lg font-semibold">Итого: <span id="po-total-cost" class="text-blue-600">0.00 MDL</span></h4><p class="text-sm text-gray-600">Остаток WBS: <span id="po-wbs-remaining">0.00 MDL</span></p></div><div class="flex justify-end space-x-3 mt-6"><button type="button" id="cancel-create-po" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Отмена</button><button type="submit" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Утвердить и Создать PO</button></div></form>
+    </div>
+
+    <!-- Модальное окно: Создать Invoice (Акт) -->
+    <div id="create-invoice-modal-backdrop" class="modal-backdrop"></div>
+    <div id="create-invoice-modal" class="modal bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+        <h3 class="text-xl font-semibold mb-4">Создать Акт / Счет</h3>
+        <form id="create-invoice-form"><div class="mb-4"><label for="invoice-po" class="block text-sm font-medium text-gray-700">Заказ на Поставку (PO)</label><select id="invoice-po" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white" required></select><div class="text-xs text-gray-600 mt-1 p-2 bg-gray-50 rounded border border-gray-200"><p>Сумма PO: <strong id="invoice-po-amount">0.00 MDL</strong></p><p>Проект: <strong id="invoice-po-project">N/A</strong></p><p>Статья WBS: <strong id="invoice-po-wbs">N/A</strong></p></div><input type="hidden" id="invoice-po-project-id"><input type="hidden" id="invoice-po-wbs-code"></div><div class="grid grid-cols-2 gap-4 mb-4"><div><label for="invoice-number" class="block text-sm font-medium text-gray-700">Номер Акта/Счета</label><input type="text" id="invoice-number" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required></div><div><label for="invoice-date" class="block text-sm font-medium text-gray-700">Дата Акта</label><input type="date" id="invoice-date" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required></div></div><div class="mb-4"><label for="invoice-amount" class="block text-sm font-medium text-gray-700">Сумма (MDL)</label><input type="number" id="invoice-amount" step="any" min="0.01" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required></div><div class="flex justify-end space-x-3 mt-6"><button type="button" id="cancel-create-invoice" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Отмена</button><button type="submit" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Создать Акт</button></div></form>
+    </div>
+
+    <!-- Модальное окно: Создать Change Order (CO) -->
+    <div id="create-co-modal-backdrop" class="modal-backdrop"></div>
+    <div id="create-co-modal" class="modal bg-white p-6 rounded-lg shadow-xl w-full max-w-lg">
+        <h3 class="text-xl font-semibold mb-4">Создать Изменение (CO)</h3>
+        <form id="create-co-form">
+            <div class="mb-4">
+                <label for="co-title" class="block text-sm font-medium text-gray-700">Название / Описание</label>
+                <input type="text" id="co-title" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required>
+            </div>
+            <div class="mb-4">
+                <label for="co-project" class="block text-sm font-medium text-gray-700">Проект</label>
+                <select id="co-project" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white" required></select>
+            </div>
+            <div class="mb-4">
+                <label for="co-wbs-code" class="block text-sm font-medium text-gray-700">Статья WBS (которую изменяем)</label>
+                <select id="co-wbs-code" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white" required></select>
+            </div>
+             <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="co-type" class="block text-sm font-medium text-gray-700">Тип Изменения</label>
+                    <select id="co-type" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 bg-white" required>
+                        <option value="Доп. работы">Доп. работы</option>
+                        <option value="Экономия">Экономия</option>
+                        <option value="Ошибка">Ошибка</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="co-amount" class="block text-sm font-medium text-gray-700">Сумма (MDL)</label>
+                    <input type="number" id="co-amount" step="any" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2" required placeholder="50000 или -15000">
+                     <p class="text-xs text-gray-500 mt-1">Используйте минус (-) для экономии.</p>
+                </div>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button type="button" id="cancel-create-co" class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">Отмена</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Создать Черновик</button>
+            </div>
+        </form>
+    </div>
+
+
+    <!--
+    ================================================================
+    FIREBASE, GEMINI API И ЛОГИКА ПРИЛОЖЕНИЯ
+    ================================================================
+    -->
+    <script type="module">
+        // 1. Импорт Firebase SDK
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            onAuthStateChanged
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, doc, getDoc, setDoc, addDoc, collection, 
+            getDocs, query, where, writeBatch, runTransaction, 
+            setLogLevel, updateDoc, Timestamp 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 2. Глобальные переменные и стейт
+        let db, auth;
+        let userId; 
+        let ganttChart = null; 
+        let toastTimeout; // <-- НОВОЕ v0.12: Таймаут для уведомления
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'stroi-core-ai-demo';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        
+        // Стейт приложения
+        const appState = {
+            materials: [],
+            projects: [],
+            tasks: [], 
+            ahpReports: [],
+            submittals: [],
+            purchaseOrders: [],
+            invoices: [],
+            changeOrders: [], 
+            ahp: {
+                selectedMaterials: [],
+                criteria: [],
+                criteriaWeights: {},
+                comparisonMatrix: {},
+                results: [],
+                radarChart: null,
+                currentReportId: null 
+            },
+            currentPOContext: {}, 
+            currentInvoiceContext: {}, 
+            currentReportData: null 
+        };
+
+        // Форматтер для молдавских леев
+        const currencyFormatter = new Intl.NumberFormat('ro-RO', { style: 'currency', currency: 'MDL' });
+
+
+        // ============================================
+        // МОДУЛЬ: GEMINI API (Без изменений)
+        // ============================================
+        const GEMINI_API_KEY = ""; // Оставляем пустым, Canvas вставит его
+        const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+        
+        async function callGeminiApi(prompt, retries = 5, delay = 1000) {
+            const systemPrompt = "Act as a construction project manager or technical consultant. Provide a concise, single-paragraph response suitable for including in a report or explaining to a client. Use professional but clear language. Respond in Russian.";
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+            };
+            try {
+                const response = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    if (response.status === 429 && retries > 0) {
+                        console.warn(`Gemini throttled. Retrying...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return callGeminiApi(prompt, retries - 1, delay * 2);
+                    }
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+                const result = await response.json();
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!text) {
+                    throw new Error("No text candidate received from API.");
+                }
+                return text.trim();
+            } catch (error) {
+                console.error("Gemini API Call Error:", error);
+                throw error;
+            }
+        }
+
+        async function generateAhpJustification() {
+            const loader = document.getElementById('justification-loader');
+            const outputDiv = document.getElementById('justification-output');
+            const errorDiv = document.getElementById('justification-error');
+            const button = document.getElementById('generate-justification-btn');
+            outputDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+            loader.style.display = 'inline-block';
+            button.disabled = true;
+            try {
+                if (!appState.ahp.results || appState.ahp.results.length === 0) {
+                    throw new Error("Результаты AHP не найдены.");
+                }
+                const winner = appState.ahp.results[0].name;
+                let criteriaStr = Object.entries(appState.ahp.criteriaWeights)
+                    .sort(([,a], [,b]) => b - a)
+                    .map(([c, w]) => `${c} (${(w * 100).toFixed(0)}%)`)
+                    .join(', ');
+                const prompt = `Напиши краткое (1-2 предложения) обоснование для клиента, почему мы выбрали материал "${winner}". Главные критерии: ${criteriaStr}.`;
+                const justification = await callGeminiApi(prompt);
+                outputDiv.textContent = justification;
+                outputDiv.style.display = 'block';
+            } catch (error) {
+                errorDiv.textContent = `Ошибка генерации: ${error.message}`;
+                errorDiv.style.display = 'block';
+            } finally {
+                loader.style.display = 'none';
+                button.disabled = false;
+            }
+        }
+
+        // ============================================
+        // МОДУЛЬ: ЯДРО ПРИЛОЖЕНИЯ И UI
+        // ============================================
+
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            const page = document.getElementById(`page-${pageId}`);
+            const link = document.querySelector(`.nav-link[data-page="${pageId}"]`);
+            if (page) page.style.display = 'block';
+            if (link) link.classList.add('active');
+            
+            if (pageId === 'ahp') {
+                document.getElementById('justification-output').style.display = 'none';
+                document.getElementById('justification-error').style.display = 'none';
+            }
+            if (pageId === 'reports') {
+                populateReportProjectSelector();
+            }
+            if (pageId === 'gantt') {
+                populateGanttProjectSelector();
+                const selectedProjectId = document.getElementById('gantt-project-select').value;
+                if(selectedProjectId) {
+                    renderGanttChart(selectedProjectId);
+                }
+            }
+        }
+
+        function openModal(modalId) {
+            document.getElementById(`${modalId}-backdrop`).style.display = 'block';
+            document.getElementById(modalId).style.display = 'block';
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(`${modalId}-backdrop`).style.display = 'none';
+            document.getElementById(modalId).style.display = 'none';
+        }
+        
+        function updateTotal() {
+            const qty = parseFloat(document.getElementById('po-quantity').value) || 0;
+            const price = parseFloat(document.getElementById('po-unit-price').value) || 0;
+            document.getElementById('po-total-cost').textContent = currencyFormatter.format(qty * price);
+        }
+        
+        /**
+         * НОВОЕ v0.12: Показывает всплывающее уведомление
+         */
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast-notification');
+            if (!toast) return;
+            
+            toast.textContent = message;
+            // Сброс классов
+            toast.className = 'toast-notification toast-show'; 
+            
+            if (isError) {
+                toast.classList.add('bg-red-600'); // Ошибка
+            } else if (message.includes("Сохранение...")) {
+                 toast.classList.add('bg-blue-600'); // Загрузка
+            } else {
+                toast.classList.add('bg-green-600'); // Успех
+            }
+
+            if (toastTimeout) clearTimeout(toastTimeout);
+            
+            toastTimeout = setTimeout(() => {
+                toast.className = 'toast-notification';
+            }, 3000);
+        }
+
+
+        // ============================================
+        // МОДУЛЬ: АУТЕНТИФИКАЦИЯ (v0.10)
+        // ============================================
+
+        async function initializeFirebase() {
+            if (!firebaseConfig.apiKey) {
+                document.getElementById('auth-status').textContent = "(Ошибка: Конфиг Firebase не найден)";
+                console.error("Firebase config is missing!");
+                return;
+            }
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        console.log("Firebase Auth Ready. UserID:", userId);
+                        document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}...)`;
+                        await main(); // Запускаем основную логику приложения
+                    } else {
+                        userId = null;
+                        document.getElementById('auth-status').textContent = "(Ошибка аутентификации)";
+                    }
+                });
+
+                // Используем __initial_auth_token, если он есть
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    try {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                        console.log("Signed in with Custom Token.");
+                    } catch (e) {
+                        console.error("Custom Token Sign-in Error, falling back to anonymous:", e);
+                        await signInAnonymously(auth); 
+                    }
+                } else {
+                    console.log("No Custom Token, falling back to anonymous.");
+                    await signInAnonymously(auth);
+                }
+
+            } catch (e) {
+                console.error("Firebase Init Error:", e);
+                document.getElementById('auth-status').textContent = `(Ошибка: ${e.message})`;
+            }
+        }
+        
+        function initSeedButton() {
+            const seedBtn = document.getElementById('seed-db-btn'); 
+            if (seedBtn && !seedBtn.dataset.listenerAttached) { 
+                seedBtn.addEventListener('click', async () => {
+                    // ИСПРАВЛЕНИЕ v0.8.2: Логика изменена. Теперь всегда спрашивает.
+                    if (confirm("Вы уверены, что хотите перезаписать тестовые данные? Существующие проекты, материалы и задачи будут заменены.")) {
+                        await seedDatabaseIfNeeded();
+                        await loadAllDataFromFirestore();
+                        renderAllPages();
+                        // Также обновляем график Ганта, если он открыт
+                        if(document.getElementById('page-gantt').style.display === 'block') {
+                            const selectedProjectId = document.getElementById('gantt-project-select').value;
+                            if(selectedProjectId) {
+                                renderGanttChart(selectedProjectId);
+                            }
+                        }
+                    }
+                });
+                seedBtn.dataset.listenerAttached = 'true'; 
+            }
+        }
+        
+        async function main() {
+             if (!userId) return; 
+             
+             document.querySelectorAll('.nav-link').forEach(link => {
+                const newLink = link.cloneNode(true);
+                link.parentNode.replaceChild(newLink, link);
+                 newLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const pageId = e.target.dataset.page;
+                    if (document.getElementById(`page-${pageId}`)) {
+                         showPage(pageId);
+                    } else {
+                        console.error(`Page element not found for id: page-${pageId}`);
+                    }
+                });
+            });
+
+            // ИСПРАВЛЕНИЕ v0.11.2: Вызов initSeedButton ПЕРЕМЕЩЕН сюда для надежности
+            initSeedButton();
+
+            // Загрузка данных
+            await loadAllDataFromFirestore();
+            renderAllPages();
+            
+            // Инициализация всех интерактивных модулей
+            initAhpWizard();
+            initSubmittals();
+            initProcurement();
+            initInvoices();
+            initChangeOrders();
+            initReports();
+            initGanttChart();
+            
+            showPage('projects'); 
+        }
+        
+        // ============================================
+        // МОДУЛЬ: ЗАГРУЗКА И ЗАПОЛНЕНИЕ ДАННЫХ (SEED)
+        // ============================================
+
+        async function seedDatabaseIfNeeded() { 
+            if (!userId) return;
+            
+            console.log("Seeding database...");
+            document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}... - Заполнение базы...)`;
+            const batch = writeBatch(db);
+            
+            // Проекты
+            const projectsCol = collection(db, `artifacts/${appId}/users/${userId}/projects`);
+            const p1_id = "project_casa_de_vis";
+            const p2_id = "project_blocul_nou";
+            
+            batch.set(doc(projectsCol, p1_id), { 
+                name: "Casa de vis (120m²)", 
+                status: "Активен", 
+                costs: { totalBudget: 1800000, committed: 0, actual: 0 }, 
+                costPerDay: 5000, 
+                wbs: [ 
+                    { code: '01-000', name: 'Подготовка', budget: 100000, committed: 0, actual: 0 }, 
+                    { code: '03-000', name: 'Фундамент', budget: 350000, committed: 0, actual: 0 }, 
+                    { code: '05-000', name: 'Зидэрие', budget: 400000, committed: 0, actual: 0 }, 
+                    { code: '07-000', name: 'Утеплители', budget: 250000, committed: 0, actual: 0 }, 
+                    { code: '09-000', name: 'Finisaje Interioare', budget: 500000, committed: 0, actual: 0 }, 
+                    { code: '10-000', name: 'Резерв', budget: 200000, committed: 0, actual: 0 } 
+                ] 
+            });
+            batch.set(doc(projectsCol, p2_id), { 
+                name: "Blocul Nou (S9)", 
+                status: "Планирование", 
+                costs: { totalBudget: 25000000, committed: 0, actual: 0 }, 
+                costPerDay: 20000, 
+                wbs: [ 
+                    { code: '05-000', name: 'Зидэрие', budget: 8000000, committed: 0, actual: 0 }, 
+                    { code: '07-000', name: 'Утеплители', budget: 5000000, committed: 0, actual: 0 }, 
+                    { code: '09-000', name: 'Finisaje', budget: 10000000, committed: 0, actual: 0 }, 
+                    { code: '10-000', name: 'Резерв', budget: 2000000, committed: 0, actual: 0 } 
+                ] 
+            });
+            
+            // Материалы
+            const materialsCol = collection(db, `artifacts/${appId}/users/${userId}/materials`);
+            batch.set(doc(materialsCol, "mat_bca_ytong_200"), { name: "BCA Ytong (200mm)", category: "Зидэрие", unit: "buc", specs: [ { name: "Цена", value: 82, unit: "MDL", higherIsBetter: false }, { name: "Теплопроводность", value: 0.11, unit: "Вт/(м·К)", higherIsBetter: false }, { name: "Плотность", value: 400, unit: "кг/м³", higherIsBetter: false } ] });
+            batch.set(doc(materialsCol, "mat_bca_celco_200"), { name: "BCA Celco (200mm)", category: "Зидэрие", unit: "buc", specs: [ { name: "Цена", value: 75, unit: "MDL", higherIsBetter: false }, { name: "Теплопроводность", value: 0.12, unit: "Вт/(м·К)", higherIsBetter: false }, { name: "Плотность", value: 450, unit: "кг/м³", higherIsBetter: false } ] });
+            batch.set(doc(materialsCol, "mat_vata_techno_100"), { name: "Vata Bazaltica (Techno, 100mm)", category: "Утеплители", unit: "m²", specs: [ { name: "Цена", value: 185, unit: "MDL/m²", higherIsBetter: false }, { name: "Теплопроводность", value: 0.038, unit: "Вт/(м·К)", higherIsBetter: false }, { name: "Плотность", value: 135, unit: "кг/м³", higherIsBetter: true } ] });
+            batch.set(doc(materialsCol, "mat_polistiren_100"), { name: "Polistiren EPS 80 (100mm)", category: "Утеплители", unit: "m²", specs: [ { name: "Цена", value: 110, unit: "MDL/m²", higherIsBetter: false }, { name: "Теплопроводность", value: 0.040, unit: "Вт/(м·К)", higherIsBetter: false }, { name: "Плотность", value: 15, unit: "кг/м³", higherIsBetter: true } ] });
+            batch.set(doc(materialsCol, "mat_gips_rigips_12"), { name: "Gips-carton Rigips (12.5mm)", category: "Finisaje Interioare", unit: "m²", specs: [ { name: "Цена", value: 55, unit: "MDL/m²", higherIsBetter: false }, { name: "Вес", value: 8.5, unit: "кг/м²", higherIsBetter: false } ] });
+            
+            // Тестовые Задачи (Tasks) для "Casa de vis"
+            const tasksCol = collection(db, `artifacts/${appId}/users/${userId}/tasks`);
+            batch.set(doc(tasksCol, 'task1'), { id: 'task1', name: 'Подготовка участка', start: '2025-10-01', end: '2025-10-05', progress: 100, dependencies: '', projectId: p1_id });
+            batch.set(doc(tasksCol, 'task2'), { id: 'task2', name: 'Заливка фундамента', start: '2025-10-06', end: '2025-10-20', progress: 100, dependencies: 'task1', projectId: p1_id });
+            batch.set(doc(tasksCol, 'task3'), { id: 'task3', name: 'Возведение стен (BCA)', start: '2025-10-21', end: '2025-11-10', progress: 50, dependencies: 'task2', projectId: p1_id });
+            batch.set(doc(tasksCol, 'task4'), { id: 'task4', name: 'Монтаж крыши', start: '2025-11-11', end: '2025-11-25', progress: 20, dependencies: 'task3', projectId: p1_id });
+            batch.set(doc(tasksCol, 'task5'), { id: 'task5', name: 'Утепление фасада', start: '2025-11-15', end: '2025-11-30', progress: 0, dependencies: 'task3', projectId: p1_id });
+            batch.set(doc(tasksCol, 'task6'), { id: 'task6', name: 'Внутренняя отделка', start: '2025-11-26', end: '2025-12-15', progress: 0, dependencies: 'task4', projectId: p1_id });
+            // Задачи для второго проекта (чтобы показать фильтрацию)
+             batch.set(doc(tasksCol, 'task7'), { id: 'task7', name: 'Котлован (Blocul Nou)', start: '2025-11-01', end: '2025-11-30', progress: 10, dependencies: '', projectId: p2_id });
+            
+            try {
+                await batch.commit();
+                console.log("Database seeded successfully.");
+                alert("База данных успешно заполнена/перезаписана тестовыми данными.");
+                document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}... - База заполнена!)`;
+            } catch (e) {
+                console.error("Seed error:", e);
+                alert("Ошибка при заполнении базы данных.");
+            }
+        }
+
+        async function loadAllDataFromFirestore() { 
+             if (!userId) return; 
+             document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}... - Загрузка...)`;
+             
+             const collectionsToLoad = [ 
+                 { name: 'materials', stateKey: 'materials' }, 
+                 { name: 'projects', stateKey: 'projects' },
+                 { name: 'tasks', stateKey: 'tasks' }, 
+                 { name: 'ahp_reports', stateKey: 'ahpReports' }, 
+                 { name: 'submittals', stateKey: 'submittals' }, 
+                 { name: 'purchase_orders', stateKey: 'purchaseOrders' }, 
+                 { name: 'invoices', stateKey: 'invoices' },
+                 { name: 'change_orders', stateKey: 'changeOrders' }
+             ];
+             
+             try {
+                 // Сбрасываем стейт перед загрузкой
+                 collectionsToLoad.forEach(c => appState[c.stateKey] = []);
+                 
+                 for (const c of collectionsToLoad) {
+                     const ref = collection(db, `artifacts/${appId}/users/${userId}/${c.name}`);
+                     const snapshot = await getDocs(query(ref));
+                     appState[c.stateKey] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                 }
+                 console.log("App State after load:", appState);
+                 document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}... - Загружено)`;
+             } catch (error) { 
+                 console.error("Error loading data:", error); 
+                 document.getElementById('auth-status').textContent = `(ID: ${userId.substring(0, 8)}... - Ошибка загрузки)`;
+             }
+        }
+        
+        /**
+         * НОВОЕ v0.12: Функция для обновления задачи в Firestore
+         */
+        async function updateTask(taskId, updates) {
+            if (!userId) throw new Error("User not authenticated");
+            const taskRef = doc(db, `artifacts/${appId}/users/${userId}/tasks`, taskId);
+            try {
+                await updateDoc(taskRef, updates);
+                // Также обновляем локальный стейт, чтобы UI не "прыгал"
+                const taskIndex = appState.tasks.findIndex(t => t.id === taskId);
+                if (taskIndex > -1) {
+                    appState.tasks[taskIndex] = { ...appState.tasks[taskIndex], ...updates };
+                }
+            } catch (error) {
+                console.error("Error updating task:", error);
+                throw error; // Передаем ошибку выше, чтобы ее поймал обработчик
+            }
+        }
+        
+        function renderAllPages() { 
+            renderProjectsList(); 
+            renderMaterialsList(); 
+            renderAhpStep1(); 
+            renderSubmittalsList(); 
+            renderPOList(); 
+            renderInvoicesList(); 
+            renderChangeOrdersList(); 
+            populateModalSelectors(); 
+            populateReportProjectSelector();
+            populateGanttProjectSelector(); 
+        }
+
+        // ============================================
+        // МОДУЛЬ: ПРОЕКТЫ (WBS) (Без изменений)
+        // ============================================
+        
+        function renderProjectsList() { 
+            const listEl = document.getElementById('projects-list'); 
+            if (!appState.projects || appState.projects.length === 0) { 
+                listEl.innerHTML = '<p class="text-gray-500">Проекты не загружены. Нажмите кнопку "Заполнить Тестовыми Данными", чтобы начать.</p>'; 
+                return; 
+            }
+            listEl.innerHTML = appState.projects.map(p => { 
+                const budget = p.costs?.totalBudget || 0; 
+                const committed = p.costs?.committed || 0; 
+                const actual = p.costs?.actual || 0; 
+                const remaining = budget - committed;
+                const committedPercent = (budget > 0) ? Math.min(100, (committed / budget * 100)) : 0; 
+                const actualPercent = (budget > 0) ? Math.min(committedPercent, (actual / budget * 100)) : 0;
+                const wbsRows = (p.wbs || []).map(w => `
+                    <tr class="hover:bg-gray-50 border-b">
+                        <td class="p-2">${w.code}</td>
+                        <td class="p-2">${w.name}</td>
+                        <td class="p-2">${currencyFormatter.format(w.actual || 0)}</td>
+                        <td class="p-2">${currencyFormatter.format(w.committed || 0)}</td>
+                        <td class="p-2 font-medium">${currencyFormatter.format(w.budget || 0)}</td>
+                    </tr>
+                `).join('');
+                return `
+                <div class="p-4 border rounded-lg bg-gray-50 shadow-sm mb-6">
+                    <h3 class="text-xl font-bold text-blue-700 mb-3">${p.name}</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm">
+                        <div class="p-3 bg-white rounded border"><strong>Бюджет:</strong> ${currencyFormatter.format(budget)}</div>
+                        <div class="p-3 bg-white rounded border"><strong>Обязательства (PO):</strong> ${currencyFormatter.format(committed)}</div>
+                        <div class="p-3 bg-white rounded border"><strong>Факт (Акты):</strong> ${currencyFormatter.format(actual)}</div>
+                        <div class="p-3 bg-white rounded border"><strong>Остаток:</strong> ${currencyFormatter.format(remaining)}</div>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-4 mb-4 relative overflow-hidden border border-gray-300">
+                        <div class="absolute bg-red-600 h-4 rounded-full z-20" style="width: ${actualPercent}%" title="Факт: ${currencyFormatter.format(actual)}"></div>
+                        <div class="absolute bg-orange-400 h-4 z-10" style="width: ${committedPercent}%" title="Обязательства: ${currencyFormatter.format(committed)}"></div>
+                    </div>
+                    <h4 class="text-md font-semibold mb-2">Статьи Бюджета (WBS)</h4>
+                    <div class="overflow-x-auto border rounded-md">
+                        <table class="min-w-full text-sm">
+                            <thead class="bg-gray-200">
+                                <tr>
+                                    <th class="p-2 text-left">Код</th>
+                                    <th class="p-2 text-left">Название</th>
+                                    <th class="p-2 text-left">Факт</th>
+                                    <th class="p-2 text-left">Обязательства</th>
+                                    <th class="p-2 text-left">Бюджет</th>
+                                </tr>
+                            </thead>
+                            <tbody>${wbsRows}</tbody>
+                        </table>
+                    </div>
+                </div>`; 
+            }).join('');
+        }
+
+        // ============================================
+        // МОДУЛЬ: График Ганта (ИЗМЕНЕНИЯ v0.12)
+        // ============================================
+        
+        function initGanttChart() {
+            populateGanttProjectSelector();
+            
+            document.getElementById('gantt-project-select').addEventListener('change', (e) => {
+                const projectId = e.target.value;
+                if (projectId) {
+                    renderGanttChart(projectId);
+                    document.getElementById('gantt-add-task-btn').disabled = false;
+                } else {
+                    if (ganttChart) {
+                        ganttChart.clear();
+                    }
+                    document.getElementById('gantt-placeholder').style.display = 'block';
+                    document.getElementById('gantt-svg').style.display = 'none';
+                    document.getElementById('gantt-add-task-btn').disabled = true;
+                }
+            });
+            
+            document.getElementById('gantt-add-task-btn').addEventListener('click', () => {
+                alert("Функционал добавления/редактирования задач будет реализован на следующем шаге.");
+            });
+        }
+        
+        function populateGanttProjectSelector() {
+            const selectEl = document.getElementById('gantt-project-select');
+            const currentValue = selectEl.value; 
+            selectEl.innerHTML = '<option value="">-- Выберите Проект --</option>';
+            (appState.projects || []).forEach(p => {
+                selectEl.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+            selectEl.value = currentValue; 
+        }
+        
+        function renderGanttChart(projectId) {
+            const projectTasks = (appState.tasks || [])
+                .filter(t => t.projectId === projectId)
+                .map(t => ({
+                    id: t.id,
+                    name: t.name,
+                    start: t.start,
+                    end: t.end,
+                    progress: t.progress,
+                    dependencies: t.dependencies || ''
+                }));
+
+            const svgEl = document.getElementById('gantt-svg');
+            const placeholderEl = document.getElementById('gantt-placeholder');
+
+            if (projectTasks.length === 0) {
+                placeholderEl.textContent = "Для этого проекта еще нет задач.";
+                placeholderEl.style.display = 'block';
+                svgEl.style.display = 'none';
+                if (ganttChart) ganttChart.clear();
+                return;
+            }
+
+            placeholderEl.style.display = 'none';
+            svgEl.style.display = 'block';
+            svgEl.innerHTML = ''; 
+            
+            // Инициализация или обновление графика
+            ganttChart = new Gantt("#gantt-svg", projectTasks, {
+                header_height: 50,
+                column_width: 30,
+                step: 24,
+                view_modes: ['Day', 'Week', 'Month'],
+                bar_height: 20,
+                bar_corner_radius: 3,
+                arrow_curve: 5,
+                padding: 18,
+                view_mode: 'Week',
+                date_format: 'YYYY-MM-DD',
+                language: 'ru',
+                custom_popup_html: (task) => {
+                    return `
+                        <div class="gantt-popup p-2 rounded shadow-lg bg-white w-64">
+                            <h4 class="font-bold text-lg mb-2">${task.name}</h4>
+                            <p class="mb-1"><strong>Начало:</strong> ${task._start.toLocaleDateString()}</p>
+                            <p class="mb-1"><strong>Конец:</strong> ${task._end.toLocaleDateString()}</p>
+                            <p class="mb-1"><strong>Прогресс:</strong> ${task.progress}%</p>
+                        </div>
+                    `;
+                },
+                
+                /*
+                 * НОВОЕ v0.12: Добавлены обработчики событий
+                 */
+                on_date_change: (task, start, end) => {
+                    // Вызывается при перетаскивании задачи
+                    handleTaskDateChange(task.id, start, end);
+                },
+                on_progress_change: (task, progress) => {
+                    // Вызывается при изменении ползунка прогресса
+                    handleTaskProgressChange(task.id, progress);
+                },
+                on_click: (task) => {
+                    console.log("Task clicked:", task);
+                    // TODO: Открыть модальное окно редактирования задачи
+                }
+            });
+        }
+        
+        /**
+         * НОВОЕ v0.12: Обработчик изменения дат задачи
+         */
+        async function handleTaskDateChange(taskId, startDateObj, endDateObj) {
+            // Frappe-gantt передает объекты Date, форматируем их в YYYY-MM-DD
+            const start = startDateObj.toISOString().split('T')[0];
+            const end = endDateObj.toISOString().split('T')[0];
+            
+            showToast("Сохранение...");
+            try {
+                // Вызываем функцию обновления данных (определена в МОДУЛЕ: ЗАГРУЗКА)
+                await updateTask(taskId, { start, end }); 
+                showToast("Даты сохранены!");
+            } catch (error) {
+                showToast("Ошибка сохранения дат!", true);
+                // В реальном приложении здесь стоило бы перезагрузить
+                // график, чтобы отменить изменения, но пока просто сообщаем
+            }
+        }
+
+        /**
+         * НОВОЕ v0.12: Обработчик изменения прогресса задачи
+         */
+        async function handleTaskProgressChange(taskId, progress) {
+            showToast("Сохранение...");
+            try {
+                // Вызываем функцию обновления данных (определена в МОДУЛЕ: ЗАГРУЗКА)
+                await updateTask(taskId, { progress });
+                showToast("Прогресс сохранен!");
+            } catch (error) {
+                showToast("Ошибка сохранения прогресса!", true);
+            }
+        }
+
+
+        // ============================================
+        // МОДУЛЬ: МАТЕРИАЛЫ (Без изменений)
+        // ============================================
+
+        function renderMaterialsList() { 
+             const listEl = document.getElementById('materials-list'); 
+             if (!appState.materials || appState.materials.length === 0) { 
+                 listEl.innerHTML = '<p class="text-gray-500">Материалы не загружены. Нажмите "Заполнить Тестовыми Данными" на странице "Проекты".</p>'; 
+                 return; 
+             }
+             listEl.innerHTML = appState.materials.map(m => `
+                <div class="p-4 border rounded-lg bg-white shadow-sm flex flex-col justify-between">
+                    <div>
+                        <h4 class="font-bold text-lg">${m.name}</h4>
+                        <p class="text-sm text-gray-500 mb-2">${m.category}</p>
+                        <div class="mt-2 text-xs space-y-1">
+                            ${(m.specs || []).map(s => `
+                                <div class="flex justify-between border-b py-1">
+                                    <span class="text-gray-600">${s.name}:</span>
+                                    <span class="font-medium">${s.value ?? 'N/A'} ${s.unit ?? ''}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+             `).join('');
+        }
+
+        // ============================================
+        // МОДУЛЬ: АНАЛИЗ AHP (+ GEMINI) (Без изменений)
+        // ============================================
+        
+        function initAhpWizard() {
+            document.getElementById('ahp-goto-step-2').addEventListener('click', () => {
+                if (processAhpStep1()) {
+                    renderAhpStep2();
+                    showAhpStep(2);
+                }
+            });
+            document.getElementById('ahp-back-step-1').addEventListener('click', () => showAhpStep(1));
+            document.getElementById('ahp-calculate').addEventListener('click', () => {
+                if (processAhpStep2()) {
+                    renderAhpStep3();
+                    showAhpStep(3);
+                }
+            });
+            document.getElementById('ahp-back-step-2').addEventListener('click', () => showAhpStep(2));
+            document.getElementById('ahp-save-report').addEventListener('click', async () => {
+                const reportId = await saveAhpReport();
+                if (reportId) {
+                    appState.ahp.currentReportId = reportId; 
+                    await loadAllDataFromFirestore(); 
+                    populateModalSelectors(); 
+                    alert("Отчет сохранен и доступен для выбора в 'Согласовании'.");
+                }
+            });
+            document.getElementById('generate-justification-btn').addEventListener('click', generateAhpJustification);
+        }
+
+        function showAhpStep(step) {
+            document.getElementById('ahp-step-1').style.display = 'none';
+            document.getElementById('ahp-step-2').style.display = 'none';
+            document.getElementById('ahp-step-3').style.display = 'none';
+            document.getElementById(`ahp-step-${step}`).style.display = 'block';
+            if (step < 3) {
+                document.getElementById('justification-output').style.display = 'none';
+                document.getElementById('justification-error').style.display = 'none';
+            }
+        }
+
+        function renderAhpStep1() {
+            const container = document.getElementById('ahp-materials-selection');
+            if (!appState.materials || appState.materials.length === 0) {
+                container.innerHTML = '<p class="text-gray-500">Материалы не загружены. Заполните базу данных.</p>';
+                document.getElementById('ahp-goto-step-2').disabled = true;
+                return;
+            }
+            document.getElementById('ahp-goto-step-2').disabled = true; 
+            container.innerHTML = appState.materials.map(m => `
+                <label class="block p-2 hover:bg-gray-100 rounded">
+                    <input type="checkbox" class="ahp-material-checkbox mr-2" data-material-id="${m.id}">
+                    ${m.name} <span class="text-xs text-gray-500">(${m.category})</span>
+                </label>
+            `).join('');
+            container.querySelectorAll('.ahp-material-checkbox').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const checkedCount = container.querySelectorAll('.ahp-material-checkbox:checked').length;
+                    document.getElementById('ahp-goto-step-2').disabled = checkedCount < 2;
+                });
+            });
+            appState.ahp.selectedMaterials = [];
+            appState.ahp.currentReportId = null;
+        }
+
+        function processAhpStep1() {
+            const checkedBoxes = document.querySelectorAll('#ahp-materials-selection input:checked');
+            if (checkedBoxes.length < 2) {
+                alert("Пожалуйста, выберите 2 или более материалов для сравнения.");
+                return false;
+            }
+            appState.ahp.selectedMaterials = Array.from(checkedBoxes)
+                .map(box => appState.materials.find(m => m.id === box.dataset.materialId))
+                .filter(Boolean); 
+            if (appState.ahp.selectedMaterials.length < 2) {
+                alert("Произошла ошибка при выборе материалов.");
+                return false;
+            }
+            let commonCriteriaSet = new Set();
+            let first = true;
+            appState.ahp.selectedMaterials.forEach(material => {
+                const currentSpecs = new Set((material.specs || []).map(s => s.name));
+                if (first) {
+                    commonCriteriaSet = currentSpecs;
+                    first = false;
+                } else {
+                    commonCriteriaSet = new Set([...commonCriteriaSet].filter(name => currentSpecs.has(name)));
+                }
+            });
+            const criteria = Array.from(commonCriteriaSet);
+            if (criteria.length < 1) {
+                alert("У выбранных материалов нет общих технических характеристик для сравнения.");
+                return false;
+            }
+            appState.ahp.criteria = criteria;
+            return true;
+        }
+
+        function renderAhpStep2() {
+            const container = document.getElementById('ahp-criteria-matrix');
+            const criteria = appState.ahp.criteria;
+            let html = '';
+            const ahpScale = [
+                { value: 9, label: "Абсолютно важнее" },
+                { value: 7, label: "Очень сильно важнее" },
+                { value: 5, label: "Сильно важнее" },
+                { value: 3, label: "Умеренно важнее" },
+                { value: 1, label: "Равнозначно" }, // Индекс 4
+                { value: 1/3, label: "Умеренно важнее" },
+                { value: 1/5, label: "Сильно важнее" },
+                { value: 1/7, label: "Очень сильно важнее" },
+                { value: 1/9, label: "Абсолютно важнее" }
+            ];
+            appState.ahp.comparisonMatrix = {}; 
+            for (let i = 0; i < criteria.length; i++) {
+                for (let j = i + 1; j < criteria.length; j++) {
+                    const c1 = criteria[i];
+                    const c2 = criteria[j];
+                    const key = `${c1}_vs_${c2}`;
+                    appState.ahp.comparisonMatrix[key] = 1;
+                    html += `
+                    <div class="p-4 border rounded-md bg-gray-50">
+                        <h4 class="text-md font-semibold text-center mb-2">${c1} vs. ${c2}</h4>
+                        <div class="flex items-center justify-between space-x-2">
+                            <span class="slider-label font-medium text-blue-600">${c1}</span>
+                            <input type="range" min="0" max="8" value="4" class="ahp-slider flex-grow" data-key="${key}">
+                            <span class="slider-label font-medium text-red-600">${c2}</span>
+                        </div>
+                        <p id="label-${key}" class="text-center text-sm text-gray-600 mt-1">Равнозначно</p>
+                    </div>`;
+                }
+            }
+            container.innerHTML = html;
+            container.querySelectorAll('.ahp-slider').forEach(slider => {
+                slider.addEventListener('input', (e) => {
+                    const idx = parseInt(e.target.value);
+                    const entry = ahpScale[idx];
+                    const key = e.target.dataset.key;
+                    appState.ahp.comparisonMatrix[key] = entry.value;
+                    const lbl = document.getElementById(`label-${key}`);
+                    if (idx === 4) lbl.textContent = "Равнозначно";
+                    else if (idx < 4) lbl.innerHTML = `<span class="font-bold text-blue-600">${entry.label}</span>`;
+                    else lbl.innerHTML = `<span class="font-bold text-red-600">${entry.label}</span>`;
+                });
+            });
+        }
+
+        function processAhpStep2() {
+            const criteria = appState.ahp.criteria;
+            const n = criteria.length;
+            if (n === 0) return false;
+            let matrix = Array(n).fill(0).map(() => Array(n).fill(0));
+            for (let i = 0; i < n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (i === j) matrix[i][j] = 1;
+                    else if (i < j) matrix[i][j] = appState.ahp.comparisonMatrix[`${criteria[i]}_vs_${criteria[j]}`] || 1;
+                    else matrix[i][j] = 1 / (appState.ahp.comparisonMatrix[`${criteria[j]}_vs_${criteria[i]}`] || 1);
+                    if (isNaN(matrix[i][j]) || !isFinite(matrix[i][j])) matrix[i][j] = 1; 
+                }
+            }
+            let colSums = Array(n).fill(0);
+            for (let j = 0; j < n; j++) { for (let i = 0; i < n; i++) colSums[j] += matrix[i][j]; }
+            let normMatrix = Array(n).fill(0).map(() => Array(n).fill(0));
+            for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) normMatrix[i][j] = colSums[j] === 0 ? 0 : matrix[i][j] / colSums[j]; }
+            let weights = Array(n).fill(0);
+            for (let i = 0; i < n; i++) weights[i] = normMatrix[i].reduce((a, b) => a + b, 0) / n;
+            appState.ahp.criteriaWeights = {};
+            criteria.forEach((crit, i) => { appState.ahp.criteriaWeights[crit] = weights[i] || 0; });
+            const RI = {1:0, 2:0, 3:0.58, 4:0.90, 5:1.12, 6:1.24, 7:1.32, 8:1.41, 9:1.45, 10:1.49};
+            let weightedSumVector = Array(n).fill(0);
+            for(let i=0; i<n; i++) { for(let j=0; j<n; j++) weightedSumVector[i] += matrix[i][j] * (weights[j] || 0); }
+            let lambdaMax = 0;
+            for(let i=0; i<n; i++) lambdaMax += (weights[i] === 0) ? 0 : weightedSumVector[i] / weights[i];
+            lambdaMax = n === 0 ? 0 : lambdaMax / n;
+            const CI = (n <= 1) ? 0 : (lambdaMax - n) / (n - 1);
+            const RIn = RI[n] || (n > 10 ? 1.51 : 0);
+            const CR = (RIn === 0) ? 0 : CI / RIn;
+            appState.ahp.consistencyRatio = isNaN(CR) ? 0 : CR;
+            return true;
+        }
+
+        function renderAhpStep3() {
+            const materials = appState.ahp.selectedMaterials;
+            const criteria = appState.ahp.criteria;
+            const weights = appState.ahp.criteriaWeights;
+            const rawData = materials.map(m => {
+                let specs = {};
+                criteria.forEach(c => {
+                    const s = (m.specs || []).find(sp => sp.name === c);
+                    specs[c] = (s && typeof s.value === 'number') ? s.value : 0;
+                });
+                return { id: m.id, name: m.name, specs: specs };
+            });
+            const normalizedData = rawData.map(d => ({ id: d.id, name: d.name, specs: {} }));
+            criteria.forEach(crit => {
+                const firstMat = materials.find(m => (m.specs || []).some(s => s.name === crit));
+                const specDef = firstMat ? (firstMat.specs || []).find(s => s.name === crit) : null;
+                const higherIsBetter = specDef ? specDef.higherIsBetter : true;
+                let values = rawData.map(d => d.specs[crit]);
+                let min = Math.min(...values);
+                let max = Math.max(...values);
+                if (max === min) {
+                    rawData.forEach((d, i) => normalizedData[i].specs[crit] = 0.5); 
+                } else {
+                    rawData.forEach((d, i) => {
+                        let score = higherIsBetter ? (d.specs[crit] - min) / (max - min) : (max - d.specs[crit]) / (max - min);
+                        normalizedData[i].specs[crit] = isNaN(score) ? 0.5 : score;
+                    });
+                }
+            });
+            const finalResults = normalizedData.map(d => {
+                let score = 0;
+                criteria.forEach(crit => {
+                    score += (d.specs[crit] || 0) * (weights[crit] || 0);
+                });
+                return { id: d.id, name: d.name, score: isNaN(score) ? 0 : score };
+            });
+            finalResults.sort((a, b) => b.score - a.score); 
+            appState.ahp.results = finalResults;
+            const crReportEl = document.getElementById('ahp-consistency-report');
+            const crPercent = (appState.ahp.consistencyRatio * 100).toFixed(1);
+            if (appState.ahp.consistencyRatio < 0.10) {
+                crReportEl.innerHTML = `✅ Согласованность: ${crPercent}% (Результаты логичны)`;
+                crReportEl.className = "text-sm mb-4 font-medium text-green-600";
+            } else {
+                crReportEl.innerHTML = `⚠️ Согласованность: ${crPercent}% (Противоречивые суждения. Рекомендуется вернуться к Шагу 2)`;
+                crReportEl.className = "text-sm mb-4 font-medium text-red-600";
+            }
+            const listEl = document.getElementById('ahp-results-list');
+            listEl.innerHTML = finalResults.map((res, idx) => `
+                <li class="flex items-center justify-between p-2 rounded ${idx === 0 ? 'bg-green-100' : ''}">
+                    <span class="font-semibold">${idx + 1}. ${res.name}</span>
+                    <span class="text-lg font-bold ${idx === 0 ? 'text-green-700' : 'text-gray-700'}">${(res.score * 100).toFixed(1)}</span>
+                </li>
+            `).join('');
+            const radarCtx = document.getElementById('ahp-radar-chart').getContext('2d');
+            const colors = [ 
+                { bg: 'rgba(59, 130, 246, 0.2)', border: 'rgba(59, 130, 246, 1)' }, // blue
+                { bg: 'rgba(239, 68, 68, 0.2)', border: 'rgba(239, 68, 68, 1)' }, // red
+                { bg: 'rgba(22, 163, 74, 0.2)', border: 'rgba(22, 163, 74, 1)' }, // green
+                { bg: 'rgba(245, 158, 11, 0.2)', border: 'rgba(245, 158, 11, 1)' } // amber
+            ];
+            const datasets = normalizedData.map((d, idx) => ({
+                label: d.name,
+                data: criteria.map(crit => d.specs[crit] ?? 0.5),
+                backgroundColor: colors[idx % colors.length].bg,
+                borderColor: colors[idx % colors.length].border,
+                borderWidth: 2,
+                pointBackgroundColor: colors[idx % colors.length].border,
+            }));
+            if (appState.ahp.radarChart) appState.ahp.radarChart.destroy(); 
+            appState.ahp.radarChart = new Chart(radarCtx, {
+                type: 'radar',
+                data: { labels: criteria, datasets: datasets },
+                options: {
+                    scales: { r: { beginAtZero: true, max: 1, ticks: { display: false } } },
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+            document.getElementById('gemini-justification-section').style.display = 'block';
+        }
+
+        async function saveAhpReport() {
+            const reportName = prompt("Введите название для этого отчета (AHP):", `AHP ${new Date().toLocaleDateString()}`);
+            if (!reportName || reportName.trim() === '') return null;
+            const reportData = {
+                name: reportName.trim(),
+                createdAt: Timestamp.now(),
+                userId: userId,
+                alternatives: appState.ahp.selectedMaterials.map(m => ({ id: m.id, name: m.name })),
+                criteria: appState.ahp.criteria,
+                weights: appState.ahp.criteriaWeights, 
+                consistencyRatio: appState.ahp.consistencyRatio, 
+                results: appState.ahp.results 
+            };
+            try {
+                const docRef = await addDoc(collection(db, `artifacts/${appId}/users/${userId}/ahp_reports`), reportData);
+                console.log("AHP Report saved with ID:", docRef.id);
+                return docRef.id;
+            } catch (e) {
+                console.error("Error saving AHP report:", e);
+                alert("Ошибка при сохранении отчета.");
+                return null;
+            }
+        }
+
+        // ============================================
+        // МОДУЛЬ: СОГЛАСОВАНИЕ (Submittals) (Без изменений)
+        // ============================================
+        
+        function initSubmittals() {
+            document.getElementById('open-create-submittal-modal').addEventListener('click', () => {
+                document.getElementById('create-submittal-form').reset();
+                const reportSelect = document.getElementById('submittal-ahp-report');
+                if(appState.ahp.currentReportId && reportSelect.querySelector(`option[value="${appState.ahp.currentReportId}"]`)) {
+                    reportSelect.value = appState.ahp.currentReportId;
+                } else {
+                    reportSelect.value = "";
+                }
+                openModal('create-submittal-modal');
+            });
+            document.getElementById('cancel-create-submittal').addEventListener('click', () => closeModal('create-submittal-modal'));
+            
+            document.getElementById('create-submittal-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const title = document.getElementById('submittal-title').value;
+                const projectId = document.getElementById('submittal-project').value;
+                const ahpReportId = document.getElementById('submittal-ahp-report').value;
+                if (!projectId) { alert("Выберите проект!"); return; }
+                const submittalData = {
+                    title: title,
+                    projectId: projectId,
+                    projectName: appState.projects.find(p => p.id === projectId)?.name || 'N/A',
+                    ahpReportId: ahpReportId || null,
+                    ahpReportName: appState.ahpReports.find(r => r.id === ahpReportId)?.name || null,
+                    status: 'Черновик',
+                    createdAt: Timestamp.now(),
+                    userId: userId
+                };
+                try {
+                    await addDoc(collection(db, `artifacts/${appId}/users/${userId}/submittals`), submittalData);
+                    closeModal('create-submittal-modal');
+                    await loadAllDataFromFirestore();
+                    renderSubmittalsList();
+                } catch (e) {
+                    console.error("Error creating submittal:", e);
+                    alert("Ошибка создания Submittal.");
+                }
+            });
+        }
+        
+        function renderSubmittalsList() {
+            const listEl = document.getElementById('submittals-list');
+            if (!appState.submittals || appState.submittals.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500">Нет Submittals для согласования.</p>';
+                return;
+            }
+            listEl.innerHTML = appState.submittals
+                .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)) 
+                .map(s => {
+                    let statusColor = 'bg-gray-200 text-gray-800';
+                    if (s.status === 'Утверждено') statusColor = 'bg-green-100 text-green-800';
+                    if (s.status === 'На согласовании') statusColor = 'bg-yellow-100 text-yellow-800';
+                    return `
+                    <div class="p-4 border rounded-lg bg-white shadow-sm flex justify-between items-start">
+                        <div>
+                            <h4 class="font-semibold text-lg">${s.title}</h4>
+                            <p class="text-sm text-gray-600">Проект: ${s.projectName || 'N/A'}</p>
+                            ${s.ahpReportName ? `<p class="text-sm text-blue-600">Отчет AHP: ${s.ahpReportName}</p>` : ''}
+                        </div>
+                        <div class="text-right">
+                            <span class="text-xs font-medium px-3 py-1 rounded-full ${statusColor}">${s.status}</span>
+                            ${s.status === 'Черновик' ? 
+                                `<button class="block mt-2 px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 btn-approve-submittal" data-id="${s.id}">
+                                    Утвердить...
+                                </button>` : ''
+                            }
+                        </div>
+                    </div>`;
+                }).join('');
+            
+            document.querySelectorAll('.btn-approve-submittal').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    openCreatePOModal(e.target.dataset.id);
+                });
+            });
+        }
+        
+        // ============================================
+        // МОДУЛЬ: ЗАКУПКИ (Purchase Orders) (Без изменений)
+        // ============================================
+
+        function renderPOList() {
+            const listEl = document.getElementById('procurement-list');
+            if (!appState.purchaseOrders || appState.purchaseOrders.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500">Нет созданных Заказов на Поставку.</p>';
+                return;
+            }
+            listEl.innerHTML = appState.purchaseOrders
+                .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+                .map(po => `
+                <div class="p-4 border rounded-lg bg-white shadow-sm">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h4 class="font-semibold text-lg">${po.materialName || 'N/A'}</h4>
+                            <p class="text-sm text-gray-600">Проект: ${po.projectName || 'N/A'}</p>
+                            <p class="text-sm text-gray-500">Статья: ${po.wbsCode || 'N/A'} (${po.wbsName || 'N/A'})</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xl font-bold text-blue-600">${currencyFormatter.format(po.totalCost || 0)}</p>
+                            <p class="text-xs text-gray-500">${po.quantity || 0} ${po.unit || ''} @ ${currencyFormatter.format(po.unitPrice || 0)}</p>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function initProcurement() {
+            document.getElementById('cancel-create-po').addEventListener('click', () => closeModal('create-po-modal'));
+            document.getElementById('po-quantity').addEventListener('input', updateTotal);
+            document.getElementById('po-wbs-code').addEventListener('change', (e) => {
+                const [projId, wbsCode] = e.target.value.split('|');
+                if (!projId || !wbsCode) {
+                    document.getElementById('po-wbs-remaining').textContent = 'N/A';
+                    return;
+                }
+                const proj = appState.projects.find(p => p.id === projId);
+                const wbs = proj?.wbs?.find(w => w.code === wbsCode);
+                const rem = wbs ? (wbs.budget || 0) - (wbs.committed || 0) : 0;
+                document.getElementById('po-wbs-remaining').textContent = `${currencyFormatter.format(rem)} (Бюджет: ${currencyFormatter.format(wbs?.budget || 0)})`;
+            });
+            document.getElementById('create-po-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await handleCreatePO();
+            });
+        }
+        
+        function openCreatePOModal(submittalId) {
+            const submittal = appState.submittals.find(s => s.id === submittalId);
+            if (!submittal) { console.error("Submittal not found:", submittalId); return; }
+            appState.currentPOContext = { submittal: submittal };
+            document.getElementById('po-submittal-id').value = submittal.id;
+            document.getElementById('po-submittal-name').textContent = submittal.title;
+            let material = null;
+            let winnerId = null;
+            if (submittal.ahpReportId) {
+                const report = appState.ahpReports.find(r => r.id === submittal.ahpReportId);
+                winnerId = report?.results?.[0]?.id; 
+                if(winnerId) material = appState.materials.find(m => m.id === winnerId);
+            }
+            if (!material) {
+                material = appState.materials.find(m => submittal.title.toLowerCase().includes(m.name.toLowerCase()));
+            }
+            const priceInput = document.getElementById('po-unit-price');
+            const nameInput = document.getElementById('po-material-name');
+            const idInput = document.getElementById('po-material-id');
+            if (material) {
+                const priceSpec = (material.specs || []).find(s => s.name === "Цена");
+                appState.currentPOContext.material = material;
+                nameInput.value = `${material.name} (${material.unit || 'шт'})`;
+                idInput.value = material.id;
+                priceInput.value = priceSpec?.value ?? 0;
+                priceInput.readOnly = !!priceSpec; 
+            } else {
+                nameInput.value = submittal.title;
+                idInput.value = "";
+                priceInput.value = 0;
+                priceInput.readOnly = false;
+                appState.currentPOContext.material = null;
+            }
+            const project = appState.projects.find(p => p.id === submittal.projectId);
+            const wbsSelect = document.getElementById('po-wbs-code');
+            wbsSelect.innerHTML = '<option value="">-- Выберите статью бюджета --</option>';
+            if (project && project.wbs) {
+                project.wbs.forEach(w => {
+                    const rem = (w.budget || 0) - (w.committed || 0);
+                    wbsSelect.innerHTML += `<option value="${project.id}|${w.code}">${w.code} - ${w.name} (Остаток: ${currencyFormatter.format(rem)})</option>`;
+                });
+            }
+            document.getElementById('po-quantity').value = 1;
+            document.getElementById('po-wbs-remaining').textContent = 'N/A';
+            updateTotal();
+            openModal('create-po-modal');
+        }
+
+        async function handleCreatePO() {
+            const submittalId = document.getElementById('po-submittal-id').value;
+            const wbsValue = document.getElementById('po-wbs-code').value;
+            if (!wbsValue) { alert("Выберите статью WBS."); return; }
+            const [projectId, wbsCode] = wbsValue.split('|');
+            const quantity = parseFloat(document.getElementById('po-quantity').value);
+            const unitPrice = parseFloat(document.getElementById('po-unit-price').value);
+            if (isNaN(quantity) || quantity <= 0) { alert("Количество должно быть > 0."); return; }
+            if (isNaN(unitPrice) || unitPrice < 0) { alert("Цена не может быть отрицательной."); return; }
+            const totalCost = quantity * unitPrice;
+            const submittal = appState.submittals.find(s => s.id === submittalId);
+            const project = appState.projects.find(p => p.id === projectId);
+            const wbs = project?.wbs?.find(w => w.code === wbsCode);
+            const material = appState.currentPOContext.material;
+            const materialNameInput = document.getElementById('po-material-name').value;
+            if (!submittal || !project || !wbs) {
+                alert("Ошибка данных (проект или WBS не найдены)."); return;
+            }
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const projectRef = doc(db, `artifacts/${appId}/users/${userId}/projects`, projectId);
+                    const projSnap = await transaction.get(projectRef); // ЧТЕНИЕ
+                    if (!projSnap.exists()) throw "Project not found!";
+                    const currentProjData = projSnap.data();
+                    const wbsItem = currentProjData.wbs.find(w => w.code === wbsCode);
+                    const remBudget = (wbsItem?.budget || 0) - (wbsItem?.committed || 0);
+                    if (totalCost > remBudget) {
+                        console.warn(`Стоимость PO (${totalCost}) превышает остаток WBS (${remBudget}).`);
+                    }
+                    
+                    // ЗАПИСИ
+                    const poRef = doc(collection(db, `artifacts/${appId}/users/${userId}/purchase_orders`));
+                    transaction.set(poRef, {
+                        projectId,
+                        projectName: project.name,
+                        submittalId,
+                        materialId: material?.id || null,
+                        materialName: material?.name || materialNameInput.split('(')[0].trim(),
+                        unit: material?.unit || 'шт',
+                        quantity,
+                        unitPrice,
+                        totalCost,
+                        wbsCode,
+                        wbsName: wbs.name,
+                        createdAt: Timestamp.now(),
+                        userId,
+                        status: 'Открыт' 
+                    });
+                    const submittalRef = doc(db, `artifacts/${appId}/users/${userId}/submittals`, submittalId);
+                    transaction.update(submittalRef, { status: "Утверждено" });
+                    const newTotalCommitted = (currentProjData.costs?.committed || 0) + totalCost;
+                    const newWbs = currentProjData.wbs.map(w => 
+                        w.code === wbsCode ? { ...w, committed: (w.committed || 0) + totalCost } : w
+                    );
+                    transaction.update(projectRef, { 
+                        "costs.committed": newTotalCommitted,
+                        "wbs": newWbs 
+                    });
+                });
+                console.log("PO Created successfully (Transaction OK)!");
+                closeModal('create-po-modal');
+                await loadAllDataFromFirestore(); 
+                renderAllPages(); 
+                showPage('procurement'); 
+            } catch (e) {
+                console.error("PO Transaction failed:", e);
+                alert("Ошибка транзакции при создании PO: " + e);
+            }
+        }
+
+        // ============================================
+        // МОДУЛЬ: АКТЫ / СЧЕТА (Invoices) (Без изменений)
+        // ============================================
+
+        function renderInvoicesList() {
+            const listEl = document.getElementById('invoices-list');
+            if (!appState.invoices || appState.invoices.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500">Акты / Счета отсутствуют.</p>';
+                return;
+            }
+            listEl.innerHTML = appState.invoices
+                .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+                .map(inv => {
+                    const po = appState.purchaseOrders.find(p => p.id === inv.poId);
+                    const date = inv.invoiceDate?.toDate ? inv.invoiceDate.toDate().toLocaleDateString() : 'N/A';
+                    return `
+                    <div class="p-4 border rounded-lg bg-white shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h4 class="font-semibold text-lg">Акт № ${inv.invoiceNumber}</h4>
+                                <p class="text-sm text-gray-600">Дата: ${date}</p>
+                                <p class="text-sm text-gray-500">Проект: ${po?.projectName || 'N/A'}</p>
+                                <p class="text-sm text-blue-600">Связанный PO: ${po?.materialName || 'N/A'}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xl font-bold text-red-600">${currencyFormatter.format(inv.amount || 0)}</p>
+                                <p class="text-xs text-green-600 font-medium">${inv.status || 'Оплачен'}</p>
+                            </div>
+                        </div>
+                    </div>
+                    `;
+                }).join('');
+        }
+        
+        function initInvoices() {
+            document.getElementById('open-create-invoice-modal').addEventListener('click', () => {
+                document.getElementById('create-invoice-form').reset();
+                populateInvoicePOSelector(); 
+                document.getElementById('invoice-po-amount').textContent = '0.00 MDL';
+                document.getElementById('invoice-po-project').textContent = 'N/A';
+                document.getElementById('invoice-po-wbs').textContent = 'N/A';
+                document.getElementById('invoice-po-project-id').value = '';
+                document.getElementById('invoice-po-wbs-code').value = '';
+                openModal('create-invoice-modal');
+            });
+            document.getElementById('cancel-create-invoice').addEventListener('click', () => closeModal('create-invoice-modal'));
+            
+            document.getElementById('invoice-po').addEventListener('change', (e) => {
+                const poId = e.target.value;
+                const po = appState.purchaseOrders.find(p => p.id === poId);
+                if (po) {
+                    document.getElementById('invoice-po-amount').textContent = currencyFormatter.format(po.totalCost || 0);
+                    document.getElementById('invoice-po-project').textContent = po.projectName || 'N/A';
+                    document.getElementById('invoice-po-wbs').textContent = `${po.wbsCode || 'N/A'} (${po.wbsName || 'N/A'})`;
+                    document.getElementById('invoice-po-project-id').value = po.projectId || '';
+                    document.getElementById('invoice-po-wbs-code').value = po.wbsCode || '';
+                    document.getElementById('invoice-amount').value = po.totalCost || 0;
+                } else {
+                    document.getElementById('invoice-po-amount').textContent = '0.00 MDL';
+                    document.getElementById('invoice-po-project').textContent = 'N/A';
+                    document.getElementById('invoice-po-wbs').textContent = 'N/A';
+                    document.getElementById('invoice-po-project-id').value = '';
+                    document.getElementById('invoice-po-wbs-code').value = '';
+                    document.getElementById('invoice-amount').value = '';
+                }
+            });
+
+            document.getElementById('create-invoice-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await handleCreateInvoice();
+            });
+        }
+        
+        function populateInvoicePOSelector() {
+            const poSelect = document.getElementById('invoice-po');
+            poSelect.innerHTML = '<option value="">-- Выберите связанный PO --</option>';
+            (appState.purchaseOrders || []).forEach(po => {
+                poSelect.innerHTML += `<option value="${po.id}">${po.materialName || 'PO'} (${currencyFormatter.format(po.totalCost || 0)}) - ${po.projectName || 'N/A'}</option>`;
+            });
+        }
+        
+        async function handleCreateInvoice() {
+            const poId = document.getElementById('invoice-po').value;
+            const invoiceNumber = document.getElementById('invoice-number').value;
+            const invoiceDateStr = document.getElementById('invoice-date').value;
+            const amount = parseFloat(document.getElementById('invoice-amount').value);
+            const projectId = document.getElementById('invoice-po-project-id').value;
+            const wbsCode = document.getElementById('invoice-po-wbs-code').value;
+
+            if (!poId || !invoiceNumber || !invoiceDateStr || !amount || amount <= 0 || !projectId || !wbsCode) {
+                alert("Ошибка: Заполните все поля (PO, Номер, Дата, Сумма).");
+                return;
+            }
+            const invoiceDate = Timestamp.fromDate(new Date(invoiceDateStr));
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const projectRef = doc(db, `artifacts/${appId}/users/${userId}/projects`, projectId);
+                    const projSnap = await transaction.get(projectRef); // ЧТЕНИЕ
+                    if (!projSnap.exists()) throw "Project not found!";
+                    const currentProjectData = projSnap.data();
+                    const wbsItemInTransaction = currentProjectData.wbs.find(w => w.code === wbsCode);
+                    if (!wbsItemInTransaction) throw `WBS ${wbsCode} not found in project`;
+                    
+                    // ЗАПИСИ
+                    const invoiceRef = doc(collection(db, `artifacts/${appId}/users/${userId}/invoices`));
+                    transaction.set(invoiceRef, {
+                        projectId: projectId,
+                        poId: poId,
+                        invoiceNumber: invoiceNumber,
+                        invoiceDate: invoiceDate,
+                        amount: amount,
+                        createdAt: Timestamp.now(),
+                        userId: userId,
+                        status: 'Оплачен'
+                    });
+                    const newTotalActual = (currentProjectData.costs?.actual || 0) + amount;
+                    const newWbs = currentProjectData.wbs.map(w =>
+                        w.code === wbsCode ? { ...w, actual: (w.actual || 0) + amount } : w
+                    );
+                    transaction.update(projectRef, { 
+                        "costs.actual": newTotalActual,
+                        "wbs": newWbs
+                    });
+                });
+                console.log("Invoice Transaction OK!");
+                closeModal('create-invoice-modal');
+                await loadAllDataFromFirestore();
+                renderAllPages();
+                showPage('invoices'); 
+            } catch (e) {
+                console.error("Invoice Transaction failed: ", e);
+                alert("Ошибка создания Акта: " + e);
+            }
+        }
+        
+        // ============================================
+        // МОДУЛЬ: ИЗМЕНЕНИЯ (Change Orders) (Без изменений)
+        // ============================================
+
+        function initChangeOrders() {
+            document.getElementById('open-create-co-modal').addEventListener('click', () => {
+                document.getElementById('create-co-form').reset();
+                populateModalSelectors(); 
+                document.getElementById('co-wbs-code').innerHTML = '<option value="">-- Сначала выберите проект --</option>'; 
+                openModal('create-co-modal');
+            });
+            document.getElementById('cancel-create-co').addEventListener('click', () => closeModal('create-co-modal'));
+            document.getElementById('co-project').addEventListener('change', (e) => {
+                const projectId = e.target.value;
+                populateCOModalWBSSelector(projectId);
+            });
+            document.getElementById('create-co-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await handleCreateCO();
+            });
+            document.getElementById('change-orders-list').addEventListener('click', async (e) => {
+                if (e.target && e.target.classList.contains('btn-approve-co')) {
+                    const coId = e.target.dataset.id;
+                    if (confirm("Вы уверены, что хотите утвердить это изменение бюджета? Это действие необратимо.")) {
+                        await handleApproveCO(coId);
+                    }
+                }
+            });
+        }
+        
+        function populateCOModalWBSSelector(projectId) {
+            const wbsSelect = document.getElementById('co-wbs-code');
+            const project = appState.projects.find(p => p.id === projectId);
+            if (project && project.wbs) {
+                wbsSelect.innerHTML = '<option value="">-- Выберите статью WBS --</option>';
+                project.wbs.forEach(w => {
+                    wbsSelect.innerHTML += `<option value="${w.code}">${w.code} - ${w.name} (Бюджет: ${currencyFormatter.format(w.budget || 0)})</option>`;
+                });
+            } else {
+                wbsSelect.innerHTML = '<option value="">-- Выберите проект --</option>';
+            }
+        }
+
+        function renderChangeOrdersList() {
+            const listEl = document.getElementById('change-orders-list');
+            if (!appState.changeOrders || appState.changeOrders.length === 0) {
+                listEl.innerHTML = '<p class="text-gray-500">Нет зарегистрированных изменений.</p>';
+                return;
+            }
+            listEl.innerHTML = appState.changeOrders
+                .sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+                .map(co => {
+                    let statusColor = 'bg-gray-200 text-gray-800';
+                    let amountColor = 'text-gray-800';
+                    if (co.status === 'Утверждено') statusColor = 'bg-green-100 text-green-800';
+                    if (co.amount > 0) amountColor = 'text-green-600';
+                    else if (co.amount < 0) amountColor = 'text-red-600';
+                    return `
+                    <div class="p-4 border rounded-lg bg-white shadow-sm flex justify-between items-start">
+                        <div>
+                            <h4 class="font-semibold text-lg">${co.title}</h4>
+                            <p class="text-sm text-gray-600">Проект: ${co.projectName || 'N/A'}</p>
+                            <p class="text-sm text-gray-500">Статья: ${co.wbsCode || 'N/A'} (${co.wbsName || 'N/A'})</p>
+                            <p class="text-sm text-gray-500">Тип: ${co.type || 'N/A'}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-xl font-bold ${amountColor}">${currencyFormatter.format(co.amount || 0)}</p>
+                            <span class="text-xs font-medium px-3 py-1 rounded-full ${statusColor}">${co.status}</span>
+                            ${co.status === 'Черновик' ? 
+                                `<button class="block mt-2 px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600 btn-approve-co" data-id="${co.id}">
+                                    Утвердить
+                                </button>` : ''
+                            }
+                        </div>
+                    </div>`;
+                }).join('');
+        }
+
+        async function handleCreateCO() {
+            const title = document.getElementById('co-title').value;
+            const projectId = document.getElementById('co-project').value;
+            const wbsCode = document.getElementById('co-wbs-code').value;
+            const type = document.getElementById('co-type').value;
+            const amount = parseFloat(document.getElementById('co-amount').value);
+            if (!title || !projectId || !wbsCode || !type || isNaN(amount)) {
+                alert("Ошибка: Заполните все поля.");
+                return;
+            }
+            const project = appState.projects.find(p => p.id === projectId);
+            const wbs = project?.wbs?.find(w => w.code === wbsCode);
+            if (!project || !wbs) {
+                alert("Ошибка: Проект или WBS не найден.");
+                return;
+            }
+            const coData = {
+                title,
+                projectId,
+                projectName: project.name,
+                wbsCode,
+                wbsName: wbs.name,
+                type,
+                amount,
+                status: 'Черновик',
+                createdAt: Timestamp.now(),
+                userId
+            };
+            try {
+                await addDoc(collection(db, `artifacts/${appId}/users/${userId}/change_orders`), coData);
+                closeModal('create-co-modal');
+                await loadAllDataFromFirestore();
+                renderChangeOrdersList();
+                showPage('change-orders');
+            } catch (e) {
+                console.error("Error creating Change Order:", e);
+                alert("Ошибка создания CO.");
+            }
+        }
+        
+        async function handleApproveCO(coId) {
+            const co = appState.changeOrders.find(c => c.id === coId);
+            if (!co) {
+                alert("Ошибка: Изменение не найдено.");
+                return;
+            }
+            const { projectId, wbsCode, amount } = co;
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const projectRef = doc(db, `artifacts/${appId}/users/${userId}/projects`, projectId);
+                    const projSnap = await transaction.get(projectRef); // ЧТЕНИЕ
+                    if (!projSnap.exists()) throw "Project not found!";
+                    const currentProjectData = projSnap.data();
+                    
+                    // ЗАПИСИ
+                    const coRef = doc(db, `artifacts/${appId}/users/${userId}/change_orders`, coId);
+                    transaction.update(coRef, { status: "Утверждено" });
+                    const newTotalBudget = (currentProjectData.costs?.totalBudget || 0) + amount;
+                    const newWbs = currentProjectData.wbs.map(w =>
+                        w.code === wbsCode ? { ...w, budget: (w.budget || 0) + amount } : w
+                    );
+                    transaction.update(projectRef, {
+                        "costs.totalBudget": newTotalBudget,
+                        "wbs": newWbs
+                    });
+                });
+                console.log("Change Order Approved!");
+                await loadAllDataFromFirestore(); 
+                renderAllPages(); 
+                showPage('change-orders'); 
+            } catch (e) {
+                console.error("CO Approval Transaction failed:", e);
+                alert("Ошибка утверждения CO: " + e);
+            }
+        }
+        
+        // ============================================
+        // МОДУЛЬ: ОТЧЕТНОСТЬ (Без изменений)
+        // ============================================
+
+        function initReports() {
+            document.getElementById('generate-cost-report-btn').addEventListener('click', generateCostReport);
+            document.getElementById('export-csv-btn').addEventListener('click', exportReportToCSV);
+            populateReportProjectSelector(); 
+        }
+
+        function populateReportProjectSelector() {
+            const selectEl = document.getElementById('report-project-select');
+            selectEl.innerHTML = '<option value="">-- Выберите Проект --</option>';
+            (appState.projects || []).forEach(p => {
+                selectEl.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+        }
+
+        function generateCostReport() {
+            const projectId = document.getElementById('report-project-select').value;
+            const outputDiv = document.getElementById('report-output');
+            const exportBtn = document.getElementById('export-csv-btn');
+            if (!projectId) {
+                outputDiv.innerHTML = '<p class="text-red-600 font-semibold">Пожалуйста, выберите проект для формирования отчета.</p>';
+                exportBtn.classList.add('hidden');
+                 appState.currentReportData = null; 
+                return;
+            }
+            const project = appState.projects.find(p => p.id === projectId);
+            if (!project || !project.wbs) {
+                outputDiv.innerHTML = '<p class="text-red-600 font-semibold">Не найдены данные WBS для выбранного проекта.</p>';
+                exportBtn.classList.add('hidden');
+                 appState.currentReportData = null;
+                return;
+            }
+            let reportHtml = `<h2 class="text-xl font-semibold mb-3">Сводный Отчет по Затратам: ${project.name}</h2>`;
+            reportHtml += `<table class="min-w-full divide-y divide-gray-200 report-table">`;
+            reportHtml += `
+                <thead>
+                    <tr>
+                        <th>Код WBS</th>
+                        <th>Название</th>
+                        <th>Бюджет</th>
+                        <th>Обязательства (PO)</th>
+                        <th>Факт (Акты)</th>
+                        <th>Остаток</th>
+                        <th>Прогноз (EAC)</th>
+                        <th>Отклонение</th>
+                    </tr>
+                </thead>`;
+            reportHtml += `<tbody class="bg-white divide-y divide-gray-200">`;
+            let totals = { budget: 0, committed: 0, actual: 0, remaining: 0, eac: 0, variance: 0 };
+             appState.currentReportData = []; 
+            (project.wbs || []).forEach(w => {
+                const budget = w.budget || 0;
+                const committed = w.committed || 0;
+                const actual = w.actual || 0;
+                const remaining = budget - committed;
+                // Упрощенный Прогноз (EAC): Факт + (Остаток Бюджета)
+                // Более сложный EAC = Факт + (Бюджет - Факт) / CPI ... но у нас нет CPI
+                const eac = actual + (budget - actual); 
+                const variance = budget - eac; // Отклонение = Бюджет - Прогноз
+                
+                totals.budget += budget;
+                totals.committed += committed;
+                totals.actual += actual;
+                totals.remaining += remaining;
+                totals.eac += eac;
+                totals.variance += variance;
+                
+                 appState.currentReportData.push({
+                    'Код WBS': w.code,
+                    'Название': w.name,
+                    'Бюджет': budget,
+                    'Обязательства': committed,
+                    'Факт': actual,
+                    'Остаток': remaining,
+                    'Прогноз': eac,
+                    'Отклонение': variance
+                 });
+                 
+                reportHtml += `
+                    <tr>
+                        <td>${w.code}</td>
+                        <td>${w.name}</td>
+                        <td>${currencyFormatter.format(budget)}</td>
+                        <td>${currencyFormatter.format(committed)}</td>
+                        <td>${currencyFormatter.format(actual)}</td>
+                        <td>${currencyFormatter.format(remaining)}</td>
+                        <td>${currencyFormatter.format(eac)}</td>
+                        <td class="${variance < 0 ? 'negative-variance' : 'positive-variance'}">${currencyFormatter.format(variance)}</td>
+                    </tr>`;
+            });
+            reportHtml += `
+                <tr class="bg-gray-100 font-bold text-gray-800">
+                    <td colspan="2" class="text-left">Итого по проекту:</td>
+                    <td>${currencyFormatter.format(totals.budget)}</td>
+                    <td>${currencyFormatter.format(totals.committed)}</td>
+                    <td>${currencyFormatter.format(totals.actual)}</td>
+                    <td>${currencyFormatter.format(totals.remaining)}</td>
+                    <td>${currencyFormatter.format(totals.eac)}</td>
+                    <td class="${totals.variance < 0 ? 'negative-variance' : 'positive-variance'}">${currencyFormatter.format(totals.variance)}</td>
+                </tr>`;
+            reportHtml += `</tbody></table>`;
+            outputDiv.innerHTML = reportHtml;
+            exportBtn.classList.remove('hidden'); 
+        }
+
+        function exportReportToCSV() {
+             if (!appState.currentReportData || appState.currentReportData.length === 0) {
+                 alert("Нет данных для экспорта. Сначала сформируйте отчет.");
+                 return;
+             }
+             const projectId = document.getElementById('report-project-select').value;
+             const projectName = appState.projects.find(p=>p.id === projectId)?.name || 'Report';
+             const filename = `CostReport_${projectName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+             
+             const headers = Object.keys(appState.currentReportData[0]);
+             let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
+             
+             appState.currentReportData.forEach(row => {
+                 const values = headers.map(header => {
+                     let value = row[header];
+                     value = typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : value;
+                     return value;
+                 });
+                 csvContent += values.join(",") + "\n";
+             });
+             
+              // Добавляем строку Итого
+              let totals = { budget: 0, committed: 0, actual: 0, remaining: 0, eac: 0, variance: 0 };
+              appState.currentReportData.forEach(row => {
+                  totals.budget += row['Бюджет'];
+                  totals.committed += row['Обязательства'];
+                  totals.actual += row['Факт'];
+                  totals.remaining += row['Остаток'];
+                  totals.eac += row['Прогноз'];
+                  totals.variance += row['Отклонение'];
+              });
+             csvContent += `"Итого","",${totals.budget},${totals.committed},${totals.actual},${totals.remaining},${totals.eac},${totals.variance}\n`;
+
+             const encodedUri = encodeURI(csvContent);
+             const link = document.createElement("a");
+             link.setAttribute("href", encodedUri);
+             link.setAttribute("download", filename);
+             document.body.appendChild(link); 
+             link.click(); 
+             document.body.removeChild(link); 
+        }
+
+        // ============================================
+        // МОДУЛЬ: ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (Без изменений)
+        // ============================================
+
+        /**
+         * Заполняет селекторы во всех модальных окнах.
+         */
+        function populateModalSelectors() {
+            // Селектор Проектов (в Submittals)
+            const projSelSub = document.getElementById('submittal-project');
+            projSelSub.innerHTML = '<option value="">-- Выберите Проект --</option>';
+            (appState.projects || []).forEach(p => {
+                projSelSub.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+            
+            // Селектор AHP-Отчетов (в Submittals)
+            const ahpSelSub = document.getElementById('submittal-ahp-report');
+            ahpSelSub.innerHTML = '<option value="">-- Нет (указать вручную) --</option>';
+            (appState.ahpReports || []).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).forEach(r => {
+                const d = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleDateString() : 'N/A';
+                ahpSelSub.innerHTML += `<option value="${r.id}">${r.name} (${d})</option>`;
+            });
+            
+            // Селектор Проектов (в Change Orders)
+            const projSelCO = document.getElementById('co-project'); 
+            projSelCO.innerHTML = '<option value="">-- Выберите Проект --</option>';
+            (appState.projects || []).forEach(p => {
+                projSelCO.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+            
+             // Селектор PO (в Invoices)
+            populateInvoicePOSelector();
+        }
+        
+        // ============================================
+        // ЗАПУСК ПРИЛОЖЕНИЯ
+        // ============================================
+        initializeFirebase(); // Запускаем инициализацию
+
+    </script>
+</body>
+</html>
